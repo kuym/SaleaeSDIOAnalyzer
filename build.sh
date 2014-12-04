@@ -7,4 +7,4 @@ extension="dylib"
 
 mkdir -p $outputDir
 
-g++ -I . -I $SDK/include -I $SDK/source -L $SDK/lib -l Analyzer -dynamiclib -undefined suppress -flat_namespace -o $outputDir/$outputName.$extension source/*.cpp
+g++ -Wall -dynamiclib -undefined suppress -flat_namespace -I . -I $SDK/include -I $SDK/source -L $SDK/lib -l Analyzer -o $outputDir/$outputName.$extension source/*.cpp

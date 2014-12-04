@@ -78,6 +78,8 @@ private:
 	
 	U64 temp;
 	U64 temp2;
+	U32 lastCommand;
+	U32 expectedCRC;
 };
 
 extern "C" ANALYZER_EXPORT const char* __cdecl GetAnalyzerName();

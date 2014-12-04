@@ -25,6 +25,20 @@
 #include <AnalyzerChannelData.h>
 
 
+U32			sdCRC7(U32 crc, U8 messageByte)
+{
+	for(int ibit = 0; ibit < 8; ibit++)
+	{
+		crc <<= 1;
+		if((messageByte ^ crc) & 0x80)
+			crc ^= 0x09;
+		messageByte <<= 1;
+	}
+	return(crc & 0x7F);
+}
+
+
+
 			SDIOAnalyzer::SDIOAnalyzer():
 				Analyzer(),  
 				mSettings(new SDIOAnalyzerSettings()),
@@ -166,12 +180,14 @@ U32		SDIOAnalyzer::FrameStateMachine(void)
 			
 			startOfNextFrame = (frame.mEndingSampleInclusive + 1);
 			temp = 0;
+			lastCommand = 0;
+			expectedCRC = 0;
 		}
 		break;
 
 	case COMMAND:
 		{
-			temp = temp<<1 | mCmd->GetBitState();
+			temp = (temp << 1) | mCmd->GetBitState();
 
 			frameCounter--;
 			if(frameCounter == 0)
@@ -180,11 +196,16 @@ U32		SDIOAnalyzer::FrameStateMachine(void)
 				frame.mStartingSampleInclusive = startOfNextFrame;
 				frame.mEndingSampleInclusive = mClock->GetSampleOfNextEdge() - 1;
 				frame.mFlags = 0;
-				frame.mData1 = temp; // Select the first 6 bits
+				// store the first 6 bits for the command and one extra (bit 6) indicating direction
+				frame.mData1 = (temp & 0x3F) | ((isCmd? 1 : 0) << 6);
 				frame.mType = FRAME_CMD;
 				mResults->AddFrame(frame);
+
+				expectedCRC = sdCRC7(0, frame.mData1);
 				
 				//Once we have the arguement
+
+				lastCommand = frame.mData1;
 
 				//Find the expected length of the next reponse based on the command
 				if(isCmd)
@@ -235,11 +256,17 @@ U32		SDIOAnalyzer::FrameStateMachine(void)
 				Frame frame;
 				frame.mStartingSampleInclusive = startOfNextFrame;
 				frame.mEndingSampleInclusive = mClock->GetSampleOfNextEdge() - 1;
-				frame.mFlags = 0;
+				frame.mFlags = lastCommand;
 				frame.mData1 = temp2;
 				frame.mData2 = temp;
 				frame.mType = FRAME_LONG_ARG;
 				mResults->AddFrame(frame);
+
+				for(signed int i = 24; i >= 0; i -= 8)
+					expectedCRC = sdCRC7(expectedCRC, 0xFF & (frame.mData1 >> i));
+				
+				for(signed int i = 24; i >= 0; i -= 8)
+					expectedCRC = sdCRC7(expectedCRC, 0xFF & (frame.mData2 >> i));
 
 				frameState = STOP;
 				frameCounter = 1;
@@ -251,10 +278,13 @@ U32		SDIOAnalyzer::FrameStateMachine(void)
 				Frame frame;
 				frame.mStartingSampleInclusive = startOfNextFrame;
 				frame.mEndingSampleInclusive = mClock->GetSampleOfNextEdge() - 1;
-				frame.mFlags = 0;
+				frame.mFlags = lastCommand;
 				frame.mData1 = temp; // Select the first 6 bits
 				frame.mType = FRAME_ARG;
 				mResults->AddFrame(frame);
+
+				for(signed int i = 24; i >= 0; i -= 8)
+					expectedCRC = sdCRC7(expectedCRC, 0xFF & (frame.mData1 >> i));
 
 				frameState = CRC7;
 				frameCounter = 7;
@@ -274,12 +304,16 @@ U32		SDIOAnalyzer::FrameStateMachine(void)
 			temp = temp << 1 | mCmd->GetBitState();
 
 			frameCounter--;
-			if (frameCounter == 0){
+			if (frameCounter == 0)
+			{
+				temp &= 0x7F;
+
 				Frame frame;
 				frame.mStartingSampleInclusive = startOfNextFrame;
 				frame.mEndingSampleInclusive = mClock->GetSampleOfNextEdge() - 1;
 				frame.mFlags = 0;
-				frame.mData1 = temp; // Select the first 6 bits
+				// Select the first 7 bits and store a (crc == expected) flag
+				frame.mData1 = temp | ((temp == expectedCRC)? 0x80 : 0);
 				frame.mType = FRAME_CRC;
 				mResults->AddFrame(frame);
 

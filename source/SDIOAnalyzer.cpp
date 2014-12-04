@@ -25,29 +25,29 @@
 #include <AnalyzerChannelData.h>
 
 
-SDIOAnalyzer::SDIOAnalyzer()
-:	Analyzer(),  
-	mSettings( new SDIOAnalyzerSettings() ),
-	mSimulationInitilized( false ),
-	mAlreadyRun(false),
-	packetState(WAITING_FOR_PACKET),
-	frameState(TRANSMISSION_BIT)
+			SDIOAnalyzer::SDIOAnalyzer():
+				Analyzer(),  
+				mSettings(new SDIOAnalyzerSettings()),
+				mSimulationInitilized(false),
+				mAlreadyRun(false),
+				packetState(WAITING_FOR_PACKET),
+				frameState(TRANSMISSION_BIT)
 {
-	SetAnalyzerSettings( mSettings.get() );
+	SetAnalyzerSettings(mSettings.get());
 }
 
-SDIOAnalyzer::~SDIOAnalyzer()
+			SDIOAnalyzer::~SDIOAnalyzer(void)
 {
 	KillThread();
 }
 
-void SDIOAnalyzer::WorkerThread()
+void		SDIOAnalyzer::WorkerThread(void)
 {
-	mResults.reset( new SDIOAnalyzerResults(this, mSettings.get()));
+	mResults.reset(new SDIOAnalyzerResults(this, mSettings.get()));
 
 	mAlreadyRun = true;
 
-	SetAnalyzerResults( mResults.get());
+	SetAnalyzerResults(mResults.get());
 
 	// mResults->AddChannelBubblesWillAppearOn(mSettings->mClockChannel);
 	mResults->AddChannelBubblesWillAppearOn(mSettings->mCmdChannel);
@@ -70,7 +70,8 @@ void SDIOAnalyzer::WorkerThread()
 	mDAT2->AdvanceToAbsPosition(mClock->GetSampleNumber());
 	mDAT3->AdvanceToAbsPosition(mClock->GetSampleNumber());
 
-	for ( ; ; ){
+	while(true)
+	{
 		PacketStateMachine();
 
 		mResults->CommitResults();
@@ -79,22 +80,22 @@ void SDIOAnalyzer::WorkerThread()
 }
 
 //Determine whether or not we are in a packet
-void SDIOAnalyzer::PacketStateMachine()
+void		SDIOAnalyzer::PacketStateMachine(void)
 {
-	if (packetState == WAITING_FOR_PACKET)
+	if(packetState == WAITING_FOR_PACKET)
 	{
-		//If we are not in a packet, let's advance to the next edge on the 
-		//command line
+		// If we are not in a packet, let's advance to the next edge on the 
+		//   command line
 		mCmd->AdvanceToNextEdge();
 		U64 sampleNumber = mCmd->GetSampleNumber();
 		lastFallingClockEdge = sampleNumber;
 		mClock->AdvanceToAbsPosition(sampleNumber);
-		//After advancing to the next command line edge the clock can either
-		//high or low.  If it is high, we need to advance two clock edges.  If
-		//it is low, we only need to advance one clock edge.
-		if (mClock->GetBitState() == BIT_HIGH){
+		
+		// After advancing to the next command line edge the clock can either
+		//   high or low.  If it is high, we need to advance two clock edges.  If
+		//   it is low, we only need to advance one clock edge.
+		if(mClock->GetBitState() == BIT_HIGH)
 			mClock->AdvanceToNextEdge();
-		}
 
 		mClock->AdvanceToNextEdge();
 		sampleNumber = mClock->GetSampleNumber();
@@ -105,13 +106,10 @@ void SDIOAnalyzer::PacketStateMachine()
 		mDAT2->AdvanceToAbsPosition(sampleNumber);
 		mDAT3->AdvanceToAbsPosition(sampleNumber);
 
-		if (mCmd->GetBitState() == BIT_LOW){
+		if(mCmd->GetBitState() == BIT_LOW)
 			packetState = IN_PACKET;	
-		}
-		
-		
 	}
-	else if (packetState == IN_PACKET)
+	else if(packetState == IN_PACKET)
 	{
 		mClock->AdvanceToNextEdge();
 		U64 sampleNumber = mClock->GetSampleNumber();
@@ -122,15 +120,14 @@ void SDIOAnalyzer::PacketStateMachine()
 		mDAT2->AdvanceToAbsPosition(sampleNumber);
 		mDAT3->AdvanceToAbsPosition(sampleNumber);
 		
-		if (mClock->GetBitState() == BIT_HIGH){
-			mResults->AddMarker(mClock->GetSampleNumber(), 
-				AnalyzerResults::UpArrow, mSettings->mClockChannel);
-			if (FrameStateMachine()==1){
+		if(mClock->GetBitState() == BIT_HIGH)
+		{
+			mResults->AddMarker(mClock->GetSampleNumber(), AnalyzerResults::UpArrow, mSettings->mClockChannel);
+			if(FrameStateMachine() == 1)
 				packetState = WAITING_FOR_PACKET;
-			}
-		}else{
-			lastFallingClockEdge = mClock->GetSampleNumber();
 		}
+		else
+			lastFallingClockEdge = mClock->GetSampleNumber();
 	}
 }
 
@@ -144,177 +141,199 @@ void SDIOAnalyzer::PacketStateMachine()
 //  - Long Response
 //  - Data
 
-U32 SDIOAnalyzer::FrameStateMachine()
+U32		SDIOAnalyzer::FrameStateMachine(void)
 {
-	if (frameState == TRANSMISSION_BIT)
+	switch(frameState)
 	{
-		Frame frame;
-		frame.mStartingSampleInclusive = lastFallingClockEdge;
-		frame.mEndingSampleInclusive = mClock->GetSampleOfNextEdge() - 1;
-		frame.mFlags = 0;
-		frame.mData1 = mCmd->GetBitState();
-		frame.mType = FRAME_DIR;
-		mResults->AddFrame(frame);
-
-		//The transmission bit tells us the origin of the packet
-		//If the bit is high the packet comes from the host
-		//If the bit is low, the packet comes from the slave
-		isCmd = mCmd->GetBitState();
-
-		
-		frameState = COMMAND;
-		frameCounter = 6;	
-		
-		startOfNextFrame = (frame.mEndingSampleInclusive + 1);
-		temp = 0;
-	}
-	else if (frameState == COMMAND)
-	{
-		temp = temp<<1 | mCmd->GetBitState();
-
-		frameCounter--;
-		if (frameCounter == 0)
+		case TRANSMISSION_BIT:
 		{
 			Frame frame;
-			frame.mStartingSampleInclusive = startOfNextFrame;
+			frame.mStartingSampleInclusive = lastFallingClockEdge;
 			frame.mEndingSampleInclusive = mClock->GetSampleOfNextEdge() - 1;
 			frame.mFlags = 0;
-			frame.mData1 = temp; // Select the first 6 bits
-			frame.mType = FRAME_CMD;
+			frame.mData1 = mCmd->GetBitState();
+			frame.mType = FRAME_DIR;
 			mResults->AddFrame(frame);
-			
-			//Once we have the arguement
 
-			//Find the expected length of the next reponse based on the command
-			if (isCmd && app){
-				//Deal with the application commands first
-				//All Application commands have a 48 bit response
-				respLength = 32;
-			}else if (isCmd){
-				//Deal with standard commands now
-				//CMD2, CMD9 and CMD10 respond with R2
-				if (temp == 2 || temp == 9 || temp == 10){
-					respLength = 127;
-					respType = 2;
-				}else{
-					// All others have 48 bit responses
-					respLength = 32;
-					respType = 1;
-				}
+			//The transmission bit tells us the origin of the packet
+			//If the bit is high the packet comes from the host
+			//If the bit is low, the packet comes from the slave
+			isCmd = mCmd->GetBitState();
+
+			
+			frameState = COMMAND;
+			frameCounter = 6;	
+			
+			startOfNextFrame = (frame.mEndingSampleInclusive + 1);
+			temp = 0;
+		}
+		break;
+
+	case COMMAND:
+		{
+			temp = temp<<1 | mCmd->GetBitState();
+
+			frameCounter--;
+			if(frameCounter == 0)
+			{
+				Frame frame;
+				frame.mStartingSampleInclusive = startOfNextFrame;
+				frame.mEndingSampleInclusive = mClock->GetSampleOfNextEdge() - 1;
+				frame.mFlags = 0;
+				frame.mData1 = temp; // Select the first 6 bits
+				frame.mType = FRAME_CMD;
+				mResults->AddFrame(frame);
 				
+				//Once we have the arguement
+
+				//Find the expected length of the next reponse based on the command
+				if(isCmd)
+				{
+					if(app)
+					{
+						//Deal with the application commands first
+						//All Application commands have a 48 bit response
+						respLength = 32;
+					}
+					else
+					{
+						//Deal with standard commands now
+						//CMD2, CMD9 and CMD10 respond with R2
+						if(temp == 2 || temp == 9 || temp == 10)
+						{
+							respLength = 127;
+							respType = 2;
+						}
+						else
+						{
+							// All others have 48 bit responses
+							respLength = 32;
+							respType = 1;
+						}
+					}
+				}
+
+				frameState = ARGUMENT;
+				startOfNextFrame = frame.mEndingSampleInclusive + 1;
+				temp = 0;
+				
+				frameCounter = isCmd? 32 : respLength;
 			}
-			
+		}
+		break;
 
-			frameState = ARGUMENT;
-			startOfNextFrame = frame.mEndingSampleInclusive + 1;
-			temp = 0;
-			if (isCmd){
-				frameCounter = 32;
-			}else{
-				frameCounter = respLength;
+	case ARGUMENT:
+		{
+			temp = temp << 1 | mCmd->GetBitState();
+
+			frameCounter--;
+
+			if(!isCmd && frameCounter == 1 && respType == 2)
+			{
+				temp = temp << 1;
+
+				Frame frame;
+				frame.mStartingSampleInclusive = startOfNextFrame;
+				frame.mEndingSampleInclusive = mClock->GetSampleOfNextEdge() - 1;
+				frame.mFlags = 0;
+				frame.mData1 = temp2;
+				frame.mData2 = temp;
+				frame.mType = FRAME_LONG_ARG;
+				mResults->AddFrame(frame);
+
+				frameState = STOP;
+				frameCounter = 1;
+				startOfNextFrame = frame.mEndingSampleInclusive + 1;
+				temp = 0;
+			}
+			else if(frameCounter == 0)
+			{
+				Frame frame;
+				frame.mStartingSampleInclusive = startOfNextFrame;
+				frame.mEndingSampleInclusive = mClock->GetSampleOfNextEdge() - 1;
+				frame.mFlags = 0;
+				frame.mData1 = temp; // Select the first 6 bits
+				frame.mType = FRAME_ARG;
+				mResults->AddFrame(frame);
+
+				frameState = CRC7;
+				frameCounter = 7;
+				startOfNextFrame = frame.mEndingSampleInclusive + 1;
+				temp = 0;
+			}
+			else if(frameCounter == 63 && !isCmd)
+			{
+				temp2 = temp;
+				temp = 0;
 			}
 		}
-		
-	}
-	else if (frameState == ARGUMENT)
-	{
-		temp = temp << 1 | mCmd->GetBitState();
+		break;
 
-		frameCounter--;
+	case CRC7:
+		{
+			temp = temp << 1 | mCmd->GetBitState();
 
-		if (!isCmd && frameCounter == 1 && respType == 2){
-			temp = temp<<1;
+			frameCounter--;
+			if (frameCounter == 0){
+				Frame frame;
+				frame.mStartingSampleInclusive = startOfNextFrame;
+				frame.mEndingSampleInclusive = mClock->GetSampleOfNextEdge() - 1;
+				frame.mFlags = 0;
+				frame.mData1 = temp; // Select the first 6 bits
+				frame.mType = FRAME_CRC;
+				mResults->AddFrame(frame);
 
-			Frame frame;
-			frame.mStartingSampleInclusive = startOfNextFrame;
-			frame.mEndingSampleInclusive = mClock->GetSampleOfNextEdge() - 1;
-			frame.mFlags = 0;
-			frame.mData1 = temp2;
-			frame.mData2 = temp;
-			frame.mType = FRAME_LONG_ARG;
-			mResults->AddFrame(frame);
-
-			frameState = STOP;
-			frameCounter = 1;
-			startOfNextFrame = frame.mEndingSampleInclusive + 1;
-			temp = 0;
-
-		}else if (frameCounter == 0){
-			Frame frame;
-			frame.mStartingSampleInclusive = startOfNextFrame;
-			frame.mEndingSampleInclusive = mClock->GetSampleOfNextEdge() - 1;
-			frame.mFlags = 0;
-			frame.mData1 = temp; // Select the first 6 bits
-			frame.mType = FRAME_ARG;
-			mResults->AddFrame(frame);
-
-			frameState = CRC7;
-			frameCounter = 7;
-			startOfNextFrame = frame.mEndingSampleInclusive + 1;
-			temp = 0;
-		}else if (frameCounter == 63 && !isCmd){
-			temp2 = temp;
-			temp = 0;
+				frameState = STOP;
+				startOfNextFrame = frame.mEndingSampleInclusive + 1;
+				temp = 0;
+			}
 		}
-	}
-	else if (frameState == CRC7)
-	{
-		temp = temp << 1 | mCmd->GetBitState();
+		break;
 
-		frameCounter--;
-		if (frameCounter == 0){
-			Frame frame;
-			frame.mStartingSampleInclusive = startOfNextFrame;
-			frame.mEndingSampleInclusive = mClock->GetSampleOfNextEdge() - 1;
-			frame.mFlags = 0;
-			frame.mData1 = temp; // Select the first 6 bits
-			frame.mType = FRAME_CRC;
-			mResults->AddFrame(frame);
-
-			frameState = STOP;
-			startOfNextFrame = frame.mEndingSampleInclusive + 1;
-			temp = 0;
+	case STOP:
+		{
+			frameState = TRANSMISSION_BIT;
+			return 1;
 		}
+
+	default:
+		break;
 	}
-	else if (frameState == STOP)
-	{
-		frameState = TRANSMISSION_BIT;
-		return 1;
-	}
-	return 0;
+
+	return(0);
 }
 
-bool SDIOAnalyzer::NeedsRerun()
+bool			SDIOAnalyzer::NeedsRerun(void)
 {
-	return !mAlreadyRun;
+	return(!mAlreadyRun);
 }
 
-U32 SDIOAnalyzer::GenerateSimulationData( U64 minimum_sample_index, U32 device_sample_rate, SimulationChannelDescriptor** simulation_channels )
+U32				SDIOAnalyzer::GenerateSimulationData(U64 minimum_sample_index, U32 device_sample_rate, SimulationChannelDescriptor** simulation_channels)
 {
-
+	return(0);
 }
 
-U32 SDIOAnalyzer::GetMinimumSampleRateHz()
+U32				SDIOAnalyzer::GetMinimumSampleRateHz(void)
 {
-	return 25000;
+	return(25000);
 }
 
-const char* SDIOAnalyzer::GetAnalyzerName() const
+const char* 	SDIOAnalyzer::GetAnalyzerName(void) const
 {
-	return "SDIO";
+	return("SDIO");
 }
 
-const char* GetAnalyzerName()
+const char*		GetAnalyzerName(void)
 {
-	return "SDIO";
+	return("SDIO");
 }
 
-Analyzer* CreateAnalyzer()
+Analyzer*		CreateAnalyzer(void)
 {
 	return new SDIOAnalyzer();
 }
 
-void DestroyAnalyzer( Analyzer* analyzer )
+void			DestroyAnalyzer(Analyzer* analyzer)
 {
 	delete analyzer;
 }

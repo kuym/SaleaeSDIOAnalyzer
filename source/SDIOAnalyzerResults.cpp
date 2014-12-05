@@ -279,14 +279,14 @@ void	SDIOAnalyzerResults::GenerateBubbleText(U64 frame_index, Channel& channel, 
 					case 3:	ioState = "???";	break;
 					}
 
-					snprintf(buffer, sizeof(buffer), "%s%s[%s] %s%s%s= 0x%02X",
+					snprintf(buffer, sizeof(buffer), "%s%s%s%s%s= 0x%02X [%s]",
 							((frame.mData1 >> 15) & 1)? "!CRC " : "",
 							((frame.mData1 >> 14) & 1)? "!CMD " : "",
-							ioState,
 							((frame.mData1 >> 11) & 1)? "ERR " : "",
 							((frame.mData1 >> 9) & 1)? "INV " : "",
 							((frame.mData1 >> 8) & 1)? "OOR " : "",
-							(int)(frame.mData1 & 0xFF)
+							(int)(frame.mData1 & 0xFF),
+							ioState
 						);
 					AddResultString(ioState);
 					AddResultString(buffer);
